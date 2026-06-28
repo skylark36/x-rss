@@ -1,0 +1,13 @@
+[project]
+name = "x-rss"
+version = "0.1.0"
+description = "Sync X (Twitter) video posts to a podcast RSS feed on Cloudflare R2"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3>=1.42.96",
+    "feedgen>=1.0.0",
+    "python-dotenv>=1.2.2",
+    "requests>=2.33.1",
+    "twscrape>=0.19.1",
+]
