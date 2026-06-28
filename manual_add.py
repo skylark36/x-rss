@@ -132,6 +132,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     url = sys.argv[1]
-    # add_tweet_video(url)
-    state = get_state(PREFIX)
-    generate_rss(state, PREFIX)
+    add_tweet_video(url)
