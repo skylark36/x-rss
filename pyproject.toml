@@ -9,5 +9,4 @@ dependencies = [
     "feedgen>=1.0.0",
     "python-dotenv>=1.2.2",
     "requests>=2.33.1",
-    "twscrape>=0.19.1",
 ]

@@ -1,7 +1,7 @@
 import os
+import sys
 import json
 import logging
-import asyncio
 import requests
 import time
 import random
@@ -10,11 +10,11 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+from collections import defaultdict
 
 import boto3
 from botocore.config import Config
 from feedgen.feed import FeedGenerator
-from twscrape import API, AccountsPool
 from notify import send_bark
 from config import load_env
 
@@ -33,19 +33,15 @@ R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
 R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")  # Normalize BASE_URL
-MAX_NEW_VIDEOS = int(os.getenv("MAX_NEW_VIDEOS", "5"))
 ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 ITUNES_TITLE = os.getenv("ITUNES_TITLE", "X Podcast")
-SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360"))
-RUN_ONCE = os.getenv("RUN_ONCE", "false").lower() == "true"
 
 # Twitter/X Configuration
 TWITTER_USERNAME = os.getenv("TWITTER_USERNAME")
 PREFIX = os.getenv("PREFIX")
 RSS_FILENAME = os.getenv("RSS_FILENAME", "rss.xml")
 STATE_FILENAME = os.getenv("STATE_FILENAME", "state.json")
-TWITTER_COOKIES = os.getenv("TWITTER_COOKIES")
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -56,47 +52,6 @@ s3_client = boto3.client(
     config=Config(signature_version="s3v4"),
 )
 
-
-async def init_twscrape(username: str, cookies: str) -> API:
-    """Initializes and returns twscrape API instance with the given cookies."""
-    logger.info(f"Initializing twscrape for account: {username}")
-    pool = AccountsPool(db_file="accounts.db")
-    
-    # Try to get the existing account
-    acc = await pool.get_account(username)
-    if acc is None:
-        logger.info(f"Adding new Twitter account {username} using cookies")
-        await pool.add_account_cookies(username, cookies)
-    else:
-        # Update cookies in case they changed in .env
-        from twscrape.utils import parse_cookies
-        logger.info(f"Updating cookies for existing Twitter account: {username}")
-        acc.cookies = parse_cookies(cookies)
-        if "ct0" in acc.cookies:
-            acc.active = True
-        await pool.save(acc)
-
-    # Check session login status
-    await pool.login_all()
-    return API(pool)
-
-
-async def fetch_x_tweets(api: API, username: str, limit: int = 20) -> List:
-    """Fetches recent tweets for the given Twitter username using twscrape."""
-    logger.info(f"Fetching recent tweets for: {username}")
-    try:
-        user = await api.user_by_login(username)
-        if user is None:
-            logger.error(f"User {username} not found (unauthenticated or invalid session/cookies).")
-            return []
-        tweets = []
-        async for tweet in api.user_tweets(user.id, limit=limit):
-            tweets.append(tweet)
-        return tweets
-    except Exception as e:
-        logger.error(f"Error fetching tweets for {username}: {e}")
-        send_bark("X-RSS Sync Error", f"Error fetching tweets for {username}: {e}")
-        return []
 
 
 def get_twitter_video_info(tweet_url: str) -> Optional[Dict]:
@@ -297,152 +252,110 @@ def generate_rss(state: Dict, prefix: str):
     local_rss.unlink()
 
 
-async def run_sync():
-    """Runs a single synchronization cycle for X (Twitter) videos."""
-    if not all([
-        R2_ACCESS_KEY_ID,
-        R2_SECRET_ACCESS_KEY,
-        R2_ENDPOINT_URL,
-        R2_BUCKET_NAME,
-        TWITTER_USERNAME,
-        TWITTER_COOKIES,
-        BASE_URL
-    ]):
-        error_msg = "Missing required environment variables for sync in .env."
-        logger.error(error_msg)
-        send_bark("X-RSS Config Error", error_msg)
-        return
-
-    # 1. Initialize twscrape
+def extract_tweet_id(url: str) -> Optional[int]:
+    """Extracts the numerical tweet ID from a tweet URL."""
     try:
-        api = await init_twscrape(TWITTER_USERNAME, TWITTER_COOKIES)
+        # e.g., https://x.com/CLEC168/status/2070946389975347267
+        parts = url.split("/status/")
+        if len(parts) > 1:
+            tweet_id_str = parts[1].split("?")[0].split("/")[0]
+            return int(tweet_id_str)
     except Exception as e:
-        logger.error(f"Failed to initialize twscrape: {e}")
-        send_bark("X-RSS Init Error", f"Failed to initialize twscrape: {e}")
+        logger.error(f"Error parsing tweet URL: {e}")
+    return None
+
+
+def add_tweet_video(tweet_url: str):
+    tweet_id = extract_tweet_id(tweet_url)
+    if not tweet_id:
+        logger.error(f"Could not extract Tweet ID from URL: {tweet_url}")
         return
 
-    # 2. Get latest tweets
-    tweets = await fetch_x_tweets(api, TWITTER_USERNAME)
-    if not tweets:
-        logger.info("No tweets found or error fetching tweets.")
-        return
-
-    # 3. Load state
     state = get_state(PREFIX)
 
-    new_videos_count = 0
-    # Process from oldest to newest to preserve chronological order in RSS
-    tweets = list(reversed(tweets))
+    # 1. Call downloader API directly
+    video_api_data = get_twitter_video_info(tweet_url)
+    if not video_api_data or not video_api_data.get("videos"):
+        logger.error(f"Could not retrieve video download links for: {tweet_url}")
+        return
 
-    for tweet in tweets:
-        if not tweet.media or not tweet.media.videos:
+    # 2. Identify all unique videos by video_index
+    # Group variants by video_index
+    video_groups = defaultdict(list)
+    for variant in video_api_data["videos"]:
+        v_idx = variant.get("video_index", 1)
+        video_groups[v_idx].append(variant)
+
+    num_videos = len(video_groups)
+    if num_videos == 0:
+        logger.error("No videos found in downloader API response.")
+        return
+
+    new_videos_added = 0
+
+    for idx in sorted(video_groups.keys()):
+        variants = video_groups[idx]
+        video_key = str(tweet_id) if num_videos == 1 else f"{tweet_id}_{idx}"
+
+        if video_key in state["videos"]:
+            logger.info(f"Video {video_key} already exists in state. Skipping.")
             continue
 
-        tweet_id = str(tweet.id)
-        tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet_id}"
-        num_videos = len(tweet.media.videos)
-        
-        video_api_data = None
+        # Select lowest quality format by bitrate
+        lowest_variant = min(variants, key=lambda v: v.get("bitrate", 999999))
+        direct_url = lowest_variant.get("direct_download_url")
+        if not direct_url:
+            logger.error(f"No direct download URL found for variant: {lowest_variant}")
+            continue
 
-        for idx, video in enumerate(tweet.media.videos, start=1):
-            video_key = tweet_id if num_videos == 1 else f"{tweet_id}_{idx}"
+        title = video_api_data.get("title") or f"X Video from {TWITTER_USERNAME or 'X'}"
+        if num_videos > 1:
+            title = f"{title} (Part {idx})"
 
-            if video_key in state["videos"]:
-                continue
+        description = title  # Use the title as the description since we don't scrape raw content
 
-            if new_videos_count >= MAX_NEW_VIDEOS:
-                logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
-                break
+        logger.info(f"Downloading audio for {video_key}...")
+        video_data = download_and_extract_audio(direct_url, str(tweet_id), idx, PREFIX)
+        if not video_data:
+            logger.error("Download and audio extraction failed.")
+            continue
 
-            # Fetch downloader API metadata lazily
-            if video_api_data is None:
-                video_api_data = get_twitter_video_info(tweet_url)
-                if not video_api_data or not video_api_data.get("videos"):
-                    logger.error(f"Could not retrieve video download links for: {tweet_url}")
-                    break
+        # Upload to R2
+        logger.info(f"Uploading {video_data['filename']} to R2...")
+        upload_file(
+            video_data["local_path"],
+            f"{PREFIX}/{video_data['filename']}",
+            "audio/mp4"
+        )
+        video_data["local_path"].unlink()
 
-            # Find matching index
-            variants = [v for v in video_api_data["videos"] if v.get("video_index") == idx]
-            if not variants:
-                if idx == 1:
-                    variants = video_api_data["videos"]
-                else:
-                    logger.error(f"No variants found for video_index: {idx}")
-                    continue
+        # Update state (use current time as upload date)
+        upload_date_str = datetime.now(timezone.utc).isoformat()
 
-            # Sort/select lowest quality
-            lowest_variant = min(variants, key=lambda v: v.get("bitrate", 999999))
-            direct_url = lowest_variant.get("direct_download_url")
-            if not direct_url:
-                logger.error(f"No direct download URL found for variant: {lowest_variant}")
-                continue
+        state["videos"][video_key] = {
+            "id": video_key,
+            "title": title,
+            "description": description,
+            "upload_date": upload_date_str,
+            "url": video_data["url"],
+        }
+        new_videos_added += 1
+        save_state(state, PREFIX)
+        logger.info(f"Video {video_key} successfully added.")
 
-            title = video_api_data.get("title") or f"X Video from {TWITTER_USERNAME}"
-            if num_videos > 1:
-                title = f"{title} (Part {idx})"
-
-            description = tweet.rawContent or title
-
-            logger.info(f"Processing new video {video_key} ({title})")
-            video_data = download_and_extract_audio(direct_url, tweet_id, idx, PREFIX)
-            if video_data:
-                logger.info(f"Uploading new video: {video_key}")
-                upload_file(
-                    video_data["local_path"],
-                    f"{PREFIX}/{video_data['filename']}",
-                    "audio/mp4"
-                )
-                video_data["local_path"].unlink()
-
-                # Save upload date
-                upload_date_str = tweet.date.isoformat() if tweet.date else datetime.now(timezone.utc).isoformat()
-
-                state["videos"][video_key] = {
-                    "id": video_key,
-                    "title": title,
-                    "description": description,
-                    "upload_date": upload_date_str,
-                    "url": video_data["url"],
-                }
-                new_videos_count += 1
-                save_state(state, PREFIX)
-
-        if new_videos_count >= MAX_NEW_VIDEOS:
-            break
-
-    # 4. Check if RSS exists, update if needed
-    rss_key = f"{PREFIX}/{RSS_FILENAME}"
-    rss_exists = False
-    try:
-        s3_client.head_object(Bucket=R2_BUCKET_NAME, Key=rss_key)
-        rss_exists = True
-    except:
-        pass
-
-    if new_videos_count > 0 or not rss_exists:
-        logger.info(f"Updating RSS feed in {PREFIX}/ with {new_videos_count} new entries.")
-        state = get_state(PREFIX)
+    if new_videos_added > 0:
+        # Regenerate RSS
+        logger.info("Regenerating RSS feed...")
         generate_rss(state, PREFIX)
+        logger.info("Done!")
     else:
-        logger.info("No new videos found and RSS already exists.")
-
-
-def main():
-    logger.info(f"Starting Sync service mode. Syncing every {SLEEP_INTERVAL} minutes.")
-    while True:
-        try:
-            asyncio.run(run_sync())
-        except Exception as e:
-            logger.error(f"Unexpected error in sync loop: {e}")
-            send_bark("X-RSS Critical Error", f"Unexpected error in sync loop: {e}")
-
-        if RUN_ONCE:
-            logger.info("RUN_ONCE is True. Exiting.")
-            break
-
-        logger.info(f"Sleeping for {SLEEP_INTERVAL} minutes...")
-        time.sleep(SLEEP_INTERVAL * 60)
+        logger.info("No new videos added.")
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <tweet_url>")
+        sys.exit(1)
+
+    url = sys.argv[1]
+    add_tweet_video(url)
