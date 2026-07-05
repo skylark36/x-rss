@@ -138,7 +138,6 @@ def randomSleep(min_val: int = 10, max_val: int = 60):
 
 def download_and_extract_audio(url: str, tweet_id: str, index: int, prefix: str) -> Optional[Dict]:
     """Downloads the video file, extracts audio to .m4a using ffmpeg, and returns file info."""
-    randomSleep(5, 20)
     tmp_dir = Path("downloads")
     tmp_dir.mkdir(exist_ok=True)
 
