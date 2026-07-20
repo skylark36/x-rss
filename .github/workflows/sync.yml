@@ -1,0 +1,32 @@
+name: Scheduled X-RSS Sync
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Runs every 6 hours
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and run sync.py
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          BASE_URL: ${{ secrets.BASE_URL }}
+          TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
+          PREFIX: ${{ secrets.PREFIX }}
+          MAX_NEW_VIDEOS: ${{ secrets.MAX_NEW_VIDEOS || '1' }}
+          SLEEP_INTERVAL: ${{ secrets.SLEEP_INTERVAL || '10' }}
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+        run: uv run python sync.py

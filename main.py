@@ -69,12 +69,22 @@ def get_twitter_video_info(tweet_url: str) -> Optional[Dict]:
             headers=headers,
             timeout=15
         )
-        if r.status_code == 200:
+        try:
             data = r.json()
-            if data.get("success"):
+        except:
+            data = None
+
+        if r.status_code == 200:
+            if data and data.get("success"):
                 return data
             else:
                 logger.error(f"Downloader API returned success=False: {data}")
+                if data and "Failed to extract video information" in data.get("error", ""):
+                    return {"success": False, "no_video": True}
+        elif r.status_code == 500:
+            logger.error(f"Downloader API status code: 500, response: {r.text}")
+            if data and "Failed to extract video information" in data.get("error", ""):
+                return {"success": False, "no_video": True}
         else:
             logger.error(f"Downloader API status code: {r.status_code}, response: {r.text}")
     except Exception as e:
@@ -146,14 +156,26 @@ def download_and_extract_audio(url: str, tweet_id: str, index: int, prefix: str)
 
     logger.info(f"Downloading video from {url} to {mp4_path}")
     try:
-        # Download video file
+        # Download video file with retries and chunked stream
         headers = {"User-Agent": "Mozilla/5.0"}
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response, open(mp4_path, "wb") as out_file:
-            out_file.write(response.read())
+        download_success = False
+        for attempt in range(1, 4):
+            try:
+                with requests.get(url, headers=headers, stream=True, timeout=30) as r:
+                    r.raise_for_status()
+                    with open(mp4_path, "wb") as out_file:
+                        for chunk in r.iter_content(chunk_size=65536):
+                            if chunk:
+                                out_file.write(chunk)
+                download_success = True
+                break
+            except Exception as download_err:
+                logger.warning(f"Download attempt {attempt} failed: {download_err}")
+                if attempt < 3:
+                    time.sleep(3)
 
-        if not mp4_path.exists() or mp4_path.stat().st_size == 0:
-            logger.error("Downloaded file is empty or missing.")
+        if not download_success or not mp4_path.exists() or mp4_path.stat().st_size == 0:
+            logger.error("Downloaded file is empty, missing, or failed download.")
             return None
 
         # Extract audio using ffmpeg without re-encoding
@@ -264,17 +286,32 @@ def extract_tweet_id(url: str) -> Optional[int]:
     return None
 
 
-def add_tweet_video(tweet_url: str):
+def add_tweet_video(tweet_url: str, pub_date: Optional[str] = None):
     tweet_id = extract_tweet_id(tweet_url)
     if not tweet_id:
         logger.error(f"Could not extract Tweet ID from URL: {tweet_url}")
         return
 
     state = get_state(PREFIX)
+    checked_tweets = state.setdefault("checked_tweets", [])
+
+    if str(tweet_id) in state["videos"] or f"{tweet_id}_1" in state["videos"] or str(tweet_id) in checked_tweets:
+        logger.info(f"Tweet {tweet_id} already processed. Skipping.")
+        return
 
     # 1. Call downloader API directly
     video_api_data = get_twitter_video_info(tweet_url)
-    if not video_api_data or not video_api_data.get("videos"):
+    if not video_api_data:
+        logger.error(f"Could not retrieve video download links for: {tweet_url}")
+        return
+
+    if video_api_data.get("no_video"):
+        logger.info(f"Tweet {tweet_id} has no video. Adding to checked list to skip future checks.")
+        checked_tweets.append(str(tweet_id))
+        save_state(state, PREFIX)
+        return
+
+    if not video_api_data.get("videos"):
         logger.error(f"Could not retrieve video download links for: {tweet_url}")
         return
 
@@ -328,8 +365,8 @@ def add_tweet_video(tweet_url: str):
         )
         video_data["local_path"].unlink()
 
-        # Update state (use current time as upload date)
-        upload_date_str = datetime.now(timezone.utc).isoformat()
+        # Update state (use fetched pub_date if provided, else current time)
+        upload_date_str = pub_date or datetime.now(timezone.utc).isoformat()
 
         state["videos"][video_key] = {
             "id": video_key,
