@@ -24,8 +24,10 @@ jobs:
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           BASE_URL: ${{ secrets.BASE_URL }}
-          TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
-          PREFIX: ${{ secrets.PREFIX }}
-          SLEEP_INTERVAL: ${{ secrets.SLEEP_INTERVAL || '10' }}
           BARK_KEY: ${{ secrets.BARK_KEY }}
+          # non-secrets
+          ITUNES_IMAGE: ${{ env.ITUNES_IMAGE }}
+          ITUNES_TITLE: ${{ env.ITUNES_TITLE }}
+          PREFIX: ${{ env.PREFIX }}
+          TWITTER_USERNAME: ${{ env.TWITTER_USERNAME }}
         run: uv run python sync.py
