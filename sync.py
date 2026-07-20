@@ -167,15 +167,8 @@ def check_and_sync():
         logger.info("No new video tweets to process.")
         return
 
-    # Read MAX_NEW_VIDEOS limit from environment (default: 1)
-    max_new_videos_str = os.getenv("MAX_NEW_VIDEOS", "1")
-    try:
-        max_new_videos = int(max_new_videos_str)
-    except ValueError:
-        max_new_videos = 1
-
-    tweets_to_process = new_video_tweets[:max_new_videos]
-    logger.info(f"Processing up to {max_new_videos} new video tweet(s) in this run: {[t[0] for t in tweets_to_process]}")
+    tweets_to_process = new_video_tweets
+    logger.info(f"Processing new video tweet(s) in this run: {[t[0] for t in tweets_to_process]}")
 
     # 5. Process new video tweets
     for i, (tweet_url, pub_date) in enumerate(tweets_to_process):

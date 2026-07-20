@@ -34,7 +34,6 @@ R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")  # Normalize BASE_URL
 ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
-ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 ITUNES_TITLE = os.getenv("ITUNES_TITLE", "X Podcast")
 
 # Twitter/X Configuration
@@ -237,14 +236,12 @@ def generate_rss(state: Dict, prefix: str):
     twitter_user_url = f"https://x.com/{TWITTER_USERNAME}"
     fg.id(twitter_user_url)
     fg.title(f"{ITUNES_TITLE}")
-    fg.author({"name": ITUNES_AUTHOR})
+    fg.author({"name": TWITTER_USERNAME})
     fg.link(href=twitter_user_url, rel="alternate")
     fg.description(f"Generated RSS feed from X posts of {TWITTER_USERNAME}")
     
     if ITUNES_IMAGE:
         fg.podcast.itunes_image(ITUNES_IMAGE)
-    if ITUNES_AUTHOR:
-        fg.podcast.itunes_author(ITUNES_AUTHOR)
 
     videos = list(state["videos"].values())
     videos = sorted(videos, key=lambda x: x.get("upload_date", ""), reverse=True)

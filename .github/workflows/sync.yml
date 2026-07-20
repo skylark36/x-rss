@@ -2,7 +2,7 @@ name: Scheduled X-RSS Sync
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Runs every 6 hours
+    - cron: '0 */3 * * *' # Runs every 6 hours
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
@@ -26,7 +26,6 @@ jobs:
           BASE_URL: ${{ secrets.BASE_URL }}
           TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
           PREFIX: ${{ secrets.PREFIX }}
-          MAX_NEW_VIDEOS: ${{ secrets.MAX_NEW_VIDEOS || '1' }}
           SLEEP_INTERVAL: ${{ secrets.SLEEP_INTERVAL || '10' }}
           BARK_KEY: ${{ secrets.BARK_KEY }}
         run: uv run python sync.py
