@@ -26,8 +26,8 @@ jobs:
           BASE_URL: ${{ secrets.BASE_URL }}
           BARK_KEY: ${{ secrets.BARK_KEY }}
           # non-secrets
-          ITUNES_IMAGE: ${{ env.ITUNES_IMAGE }}
-          ITUNES_TITLE: ${{ env.ITUNES_TITLE }}
-          PREFIX: ${{ env.PREFIX }}
-          TWITTER_USERNAME: ${{ env.TWITTER_USERNAME }}
+          ITUNES_IMAGE: ${{ vars.ITUNES_IMAGE }}
+          ITUNES_TITLE: ${{ vars.ITUNES_TITLE }}
+          PREFIX: ${{ vars.PREFIX }}
+          TWITTER_USERNAME: ${{ vars.TWITTER_USERNAME }}
         run: uv run python sync.py
