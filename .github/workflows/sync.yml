@@ -17,6 +17,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+
       - name: Install dependencies and run sync.py
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
