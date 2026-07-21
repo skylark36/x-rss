@@ -2,7 +2,7 @@ name: Scheduled X-RSS Sync
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Runs every 6 hours
+    - cron: '30 * * * *' # Runs every hour
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
