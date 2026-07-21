@@ -2,7 +2,7 @@ name: Scheduled X-RSS Sync
 
 on:
   schedule:
-    - cron: '30 * * * *' # Runs every hour
+    - cron: "30 * * * *" # Runs every hour
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
@@ -20,7 +20,10 @@ jobs:
       - name: Install ffmpeg
         uses: FedericoCarboni/setup-ffmpeg@v3
 
-      - name: Install dependencies and run sync.py
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run sync.py
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
