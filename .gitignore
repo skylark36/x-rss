@@ -5,5 +5,4 @@ accounts.db-journal
 downloads/
 __pycache__/
 *.pyc
-*.xml
-*.json
+uv.lock
