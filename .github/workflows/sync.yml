@@ -17,8 +17,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install ffmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+      - name: Setup FFmpeg
+        uses: AnimMouse/setup-ffmpeg@v1
 
       - name: Install dependencies
         run: uv sync
