@@ -14,12 +14,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# List of Nitter instances to try as fallback
+# List of Nitter instances to try as fallback (configured via NITTER_INSTANCES env var, separated by semicolon)
 NITTER_INSTANCES = [
-    "https://nitter.net",
-    "https://xcancel.com",
-    "https://nitter.privacyredirect.com",
-    "https://nitter.poast.org"
+    url.strip()
+    for url in os.getenv(
+        "NITTER_INSTANCES",
+        "https://nitter.net;https://xcancel.com;https://nitter.privacyredirect.com;https://nitter.poast.org"
+    ).split(";")
+    if url.strip()
 ]
 
 def has_video_attachment(item) -> bool:

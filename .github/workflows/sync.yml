@@ -36,4 +36,5 @@ jobs:
           ITUNES_TITLE: ${{ vars.ITUNES_TITLE }}
           PREFIX: ${{ vars.PREFIX }}
           TWITTER_USERNAME: ${{ vars.TWITTER_USERNAME }}
+          NITTER_INSTANCES: ${{ vars.NITTER_INSTANCES }}
         run: uv run python sync.py
