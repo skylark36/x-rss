@@ -37,4 +37,8 @@ jobs:
           PREFIX: ${{ vars.PREFIX }}
           TWITTER_USERNAME: ${{ vars.TWITTER_USERNAME }}
           NITTER_INSTANCES: ${{ vars.NITTER_INSTANCES }}
+          # content filter (LLM) — secret key, optional base/model overrides
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
         run: uv run python sync.py

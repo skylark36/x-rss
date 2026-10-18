@@ -6,6 +6,7 @@ import time
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
+from filters import ContentFilter
 from main import add_tweet_video, get_state, save_state, PREFIX, TWITTER_USERNAME
 
 # Setup logging
@@ -158,7 +159,7 @@ def check_and_sync():
             continue
 
         pub_date = get_item_pub_date(item)
-        new_video_tweets.append((tweet_url, pub_date))
+        new_video_tweets.append((tweet_url, pub_date, item.findtext("title", "")))
 
     if skipped_state_change:
         state["checked_tweets"] = checked_tweets
@@ -169,6 +170,33 @@ def check_and_sync():
         logger.info("No new video tweets to process.")
         return
 
+    # 4.5 Content filter: LLM decides what counts as course content
+    # (only exact-title duplicates are skipped without calling the model)
+    content_filter = ContentFilter()
+    content_filter.seed_titles([v.get("title", "") for v in processed_videos.values()])
+    candidates = [
+        {
+            "id": url.rsplit("/", 1)[-1],
+            "title": title,
+            "url": url,
+            "pub_date": pub_date,
+        }
+        for url, pub_date, title in new_video_tweets
+    ]
+    kept = content_filter.filter_items(candidates)
+
+    dropped_ids = {c["id"] for c in candidates} - {k["id"] for k in kept}
+    if dropped_ids:
+        checked_tweets.extend(sorted(dropped_ids))
+        state["checked_tweets"] = checked_tweets
+        save_state(state, PREFIX)
+        logger.info(f"Marked {len(dropped_ids)} filtered tweet(s) as checked.")
+
+    if not kept:
+        logger.info("All new tweets were filtered out as non-course content.")
+        return
+
+    new_video_tweets = [(k["url"], k["pub_date"]) for k in kept]
     tweets_to_process = new_video_tweets
     logger.info(f"Processing new video tweet(s) in this run: {[t[0] for t in tweets_to_process]}")
 
